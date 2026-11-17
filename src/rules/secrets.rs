@@ -100,11 +100,22 @@ pub static RULES: LazyLock<Vec<SecretRule>> = LazyLock::new(|| {
             Severity::Medium,
             r"\b(eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,})\b"
         ),
+        // Nama variabel boleh punya awalan dan akhiran di sekitar kata
+        // kuncinya. Versi sebelumnya mensyaratkan kata kunci **tepat** sebelum
+        // `:`/`=`, sehingga `AWS_SECRET_ACCESS_KEY='...'` dan
+        // `PGPASSWORD='...'` lolos sepenuhnya — padahal itu bentuk yang paling
+        // umum di script deploy dan entrypoint Docker, dan justru di situ
+        // kredensial paling sering ditinggalkan.
+        //
+        // Trade-off yang diterima: `tokenizer = "..."` atau `secretary = "..."`
+        // sekarang ikut cocok. Itu jarang, dan biayanya kecil — satu baris yang
+        // diverifikasi manusia. Melewatkan `AWS_SECRET_ACCESS_KEY` biayanya
+        // kunci produksi yang tidak pernah dilaporkan.
         rule!(
             "secret/generic-assignment",
             "Nilai rahasia pada assignment",
             Severity::Medium,
-            r#"(?i)(?:api[_-]?key|secret(?:[_-]?key)?|passwd|password|access[_-]?token|auth[_-]?token|token|private[_-]?key)\s*[:=]\s*["']([^"'\s]{12,})["']"#
+            r#"(?i)[A-Za-z0-9_]*(?:api[_-]?key|secret(?:[_-]?key)?|passwd|password|access[_-]?token|auth[_-]?token|token|private[_-]?key)[A-Za-z0-9_]*\s*[:=]\s*["']([^"'\s]{12,})["']"#
         ),
         // Baris gaya `.env` / `.properties` tanpa tanda kutip:
         //   DB_PASSWORD=Tr0ub4dor3xKp9mn
@@ -319,6 +330,35 @@ mod tests {
                 .iter()
                 .any(|f| f.rule_id == "secret/generic-assignment"),
             "password pada assignment tidak terdeteksi: {found:?}"
+        );
+    }
+
+    /// Nama variabel yang punya awalan di sekitar kata kuncinya harus tetap
+    /// terdeteksi. Ini bentuk yang paling umum di script deploy dan entrypoint
+    /// Docker — dan sebelum ini `AWS_SECRET_ACCESS_KEY='...'` lolos total.
+    #[test]
+    fn detects_prefixed_variable_names() {
+        for line in [
+            "AWS_SECRET_ACCESS_KEY='dJ8sQ2mK7pLw4nRt6vBc9xZ1yH3fG5jT'",
+            "PGPASSWORD='Pr0d7K9mQ2xLw4nRt6vBc'",
+            "export MY_API_TOKEN='aB3dE6gH9jK2mN5pQ8sT1vW4yZ7cF0iL'",
+        ] {
+            let found = scan(line);
+            assert!(
+                !found.is_empty(),
+                "assignment bernama berawalan tidak terdeteksi: {line}"
+            );
+        }
+    }
+
+    /// Regresi: nilai yang mengandung kata `example` adalah placeholder milik
+    /// dokumentasi, dan tidak boleh bikin test di atas jadi tidak berarti.
+    #[test]
+    fn placeholder_marker_still_skipped_with_prefix() {
+        let found = scan("AWS_SECRET_ACCESS_KEY='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'");
+        assert!(
+            found.is_empty(),
+            "nilai berpenanda example harus tetap dilewati: {found:?}"
         );
     }
 

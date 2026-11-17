@@ -77,7 +77,13 @@ static RULES: LazyLock<Vec<PatternRule>> = LazyLock::new(|| {
             Severity::Medium,
             // Perhatikan `r#"..."#`: raw string biasa tidak bisa memuat tanda
             // kutip, jadi regex yang perlu mencocokkan kutip wajib pakai ini.
-            r#"(?i)(?:\bmd5\s*\(|\bsha1\s*\(|MessageDigest\.getInstance\s*\(\s*["'](?:MD5|SHA-?1)["']|\bMd5::|\bSha1::)"#,
+            //
+            // Cabang `createHash\s*\(` perlu karena API Node.js menyebut nama
+            // algoritma sebagai argumen string, bukan sebagai nama fungsi:
+            // `crypto.createHash('md5')` tidak cocok dengan `\bmd5\s*\(`.
+            // Tanpa cabang itu, MD5 di backend Node.js lolos sepenuhnya —
+            // padahal itu justru bentuk yang paling sering dipakai.
+            r#"(?i)(?:\bmd5\s*\(|\bsha1\s*\(|createHash\s*\(\s*["'](?:md5|sha-?1)["']|hashlib\.new\s*\(\s*["'](?:md5|sha-?1)["']|MessageDigest\.getInstance\s*\(\s*["'](?:MD5|SHA-?1)["']|\bMd5::|\bSha1::)"#,
             "MD5/SHA-1 tidak layak untuk password atau integritas data yang perlu tahan tabrakan. Pakai Argon2/bcrypt untuk password, SHA-256+ untuk integritas."
         ),
         rule!(
@@ -158,5 +164,95 @@ pub fn scan_line(rel_path: &str, ext: &str, lineno: usize, line: &str, out: &mut
             snippet,
             message: format!("{} (kecocokan: `{}`)", rule.message, m.as_str()),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(line: &str, ext: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        scan_line("src/app.js", ext, 1, line, &mut out);
+        out.into_iter().map(|f| f.rule_id).collect()
+    }
+
+    fn js(line: &str) -> Vec<String> {
+        ids(line, "js")
+    }
+
+    /// Nama algoritma sebagai argumen string — bentuk yang dipakai Node.js.
+    ///
+    /// Sebelumnya `crypto.createHash('md5')` lolos sepenuhnya karena pola
+    /// mengharapkan `md5(` sebagai pemanggilan fungsi. Ini kelas kesalahan
+    /// yang justru paling dicari saat audit, jadi harus tertangkap.
+    #[test]
+    fn detects_weak_hash_as_string_argument() {
+        for line in [
+            "const h = crypto.createHash('md5').update(p).digest('hex');",
+            "const h = crypto.createHash(\"sha1\").update(p).digest('hex');",
+            "const h = createHash('md5')",
+        ] {
+            assert!(
+                js(line).contains(&"pattern/weak-hash".to_string()),
+                "hash lemah berargumen string tidak terdeteksi: {line}"
+            );
+        }
+    }
+
+    /// Bentuk yang memang sudah tertangkap harus tetap tertangkap.
+    #[test]
+    fn still_detects_function_call_form() {
+        for line in [
+            "h = hashlib.md5(data)",
+            "h = hashlib.new('md5')",
+            "digest = md5(data)",
+        ] {
+            let found = ids(line, "py");
+            assert!(
+                found.contains(&"pattern/weak-hash".to_string()),
+                "bentuk pemanggilan fungsi jadi lolos: {line} -> {found:?}"
+            );
+        }
+    }
+
+    /// `createHash('sha256')` bukan temuan — kalau ikut cocok, rule-nya
+    /// berisik dan akan diabaikan orang.
+    #[test]
+    fn does_not_flag_strong_hash() {
+        for line in [
+            "const h = crypto.createHash('sha256').update(p).digest('hex');",
+            "const h = crypto.createHash('sha512')",
+        ] {
+            let found = js(line);
+            assert!(
+                !found.contains(&"pattern/weak-hash".to_string()),
+                "hash kuat salah dilaporkan: {line} -> {found:?}"
+            );
+        }
+    }
+
+    /// `child_process.exec` adalah eksekusi shell, bukan `eval`. Keduanya
+    /// memang cocok, dan keduanya harus muncul — dedup_key menyertakan
+    /// rule_id sehingga tidak ada yang saling menimpa.
+    #[test]
+    fn shell_exec_and_eval_are_both_reported() {
+        let found = js("exec('ping -c 1 ' + host, cb);");
+        assert!(
+            found.contains(&"pattern/eval".to_string()),
+            "eval harus tetap dilaporkan: {found:?}"
+        );
+
+        let found = js("child_process.exec('ls -la');");
+        assert!(
+            found.contains(&"pattern/shell-exec".to_string()),
+            "shell-exec harus dilaporkan: {found:?}"
+        );
+    }
+
+    #[test]
+    fn clean_code_yields_no_pattern_findings() {
+        let found = js("const total = items.reduce((a, b) => a + b, 0);");
+        assert!(found.is_empty(), "kode bersih malah dilaporkan: {found:?}");
     }
 }
