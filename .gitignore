@@ -1,0 +1,14 @@
+/target
+
+# Kredensial — jangan pernah ikut ter-commit.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Hasil laporan keris sering memuat potongan kode sensitif.
+/keris-report.*
+*.sarif
