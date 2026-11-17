@@ -187,21 +187,42 @@ fn source_filter_excludes_llm_findings_without_llm_flags() {
     );
 }
 
+/// Aturan `.gitignore` hanya berlaku di dalam git repo, dan berkas `.env`
+/// memang tidak ikut ter-commit. Karena itu test ini **membuat sendiri**
+/// fixture-nya: versi sebelumnya mengandalkan `.env` yang sudah ada di pohon
+/// berkas, sehingga lolos di mesin lokal tapi gagal di checkout CI.
 #[test]
 fn no_ignore_includes_gitignored_files() {
-    // `.env` di fixture ter-gitignore, jadi default tidak dipindai.
-    let default = run(&["audit", FIXTURE, "--format", "grep"]);
-    assert!(
-        !default.stdout.contains("secret/env-file"),
-        ".env tidak boleh ikut terpindai saat .gitignore dihormati"
-    );
+    const ENV_FIXTURE: &str = "# Fixture sintetis — dibuat oleh test, tidak pernah ikut ter-commit.\n\
+         API_KEY=sk-9fXk2mQz7pLw4nRt8vBc3dHs6jYe1aUo5iKpQw\n";
+
+    let env_path = PathBuf::from(FIXTURE).join(".env");
+    let created = !env_path.exists();
+    if created {
+        std::fs::write(&env_path, ENV_FIXTURE).expect("gagal menulis fixture .env");
+    }
 
     let all = run(&["audit", FIXTURE, "--format", "grep", "--no-ignore"]);
+    let default = run(&["audit", FIXTURE, "--format", "grep"]);
+
+    if created {
+        let _ = std::fs::remove_file(&env_path);
+    }
+
     assert!(
         all.stdout.contains("secret/env-file"),
         "--no-ignore seharusnya memindai .env dan menandainya:\n{}",
         all.stdout
     );
+
+    // Bagian ini hanya bermakna kalau kita memang berada di dalam git repo —
+    // di luar itu `.gitignore` tidak berlaku dan `.env` wajar ikut terpindai.
+    if PathBuf::from(".git").exists() {
+        assert!(
+            !default.stdout.contains("secret/env-file"),
+            ".env tidak boleh ikut terpindai saat .gitignore dihormati"
+        );
+    }
 }
 
 #[test]
