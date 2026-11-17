@@ -1,15 +1,26 @@
 //! Penyajian hasil.
 
 use crate::cli::OutputFormat;
-use crate::finding::{Finding, Severity};
+use crate::finding::{Finding, Severity, sanitize_display};
 use anyhow::Result;
 use colored::Colorize;
 use std::collections::BTreeMap;
 
-pub fn print(findings: &[Finding], format: OutputFormat, rejected: usize) -> Result<()> {
+/// Cetak hasil.
+///
+/// `rejected` = temuan yang dibuang LLM (false positive).
+/// `hidden` = temuan yang ada tetapi tersaring oleh `--min-severity`/`--source`.
+/// Keduanya dilaporkan supaya "tidak ada temuan" tidak pernah berarti
+/// "kami menyembunyikan sesuatu".
+pub fn print(
+    findings: &[Finding],
+    format: OutputFormat,
+    rejected: usize,
+    hidden: usize,
+) -> Result<()> {
     match format {
-        OutputFormat::Text => print_text(findings, rejected),
-        OutputFormat::Json => print_json(findings, rejected)?,
+        OutputFormat::Text => print_text(findings, rejected, hidden),
+        OutputFormat::Json => print_json(findings, rejected, hidden)?,
         OutputFormat::Grep => print_grep(findings),
     }
     Ok(())
@@ -23,9 +34,30 @@ fn counts(findings: &[Finding]) -> BTreeMap<Severity, usize> {
     map
 }
 
-fn print_text(findings: &[Finding], rejected: usize) {
+fn counts_json(c: &BTreeMap<Severity, usize>) -> serde_json::Value {
+    serde_json::json!({
+        "critical": c.get(&Severity::Critical).copied().unwrap_or(0),
+        "high": c.get(&Severity::High).copied().unwrap_or(0),
+        "medium": c.get(&Severity::Medium).copied().unwrap_or(0),
+        "low": c.get(&Severity::Low).copied().unwrap_or(0),
+        "info": c.get(&Severity::Info).copied().unwrap_or(0),
+    })
+}
+
+fn print_text(findings: &[Finding], rejected: usize, hidden: usize) {
     if findings.is_empty() {
-        println!("{}", "Tidak ada temuan.".green().bold());
+        if hidden > 0 {
+            // Ini yang sebelumnya menyesatkan: temuan ada, hanya tersaring,
+            // tapi pesannya bilang "Tidak ada temuan."
+            println!(
+                "{}",
+                format!("Tidak ada temuan yang ditampilkan — {hidden} temuan tersaring oleh --min-severity/--source.")
+                    .yellow()
+                    .bold()
+            );
+        } else {
+            println!("{}", "Tidak ada temuan.".green().bold());
+        }
         if rejected > 0 {
             println!(
                 "{}",
@@ -35,29 +67,60 @@ fn print_text(findings: &[Finding], rejected: usize) {
         return;
     }
 
-    for f in findings {
-        let badge = format!("{:>8}", f.severity.label()).color(f.severity.color()).bold();
-        let location = if f.line == 0 {
-            f.file.clone()
+    // Kelompokkan per lokasi. Temuan rule dan LLM sering menunjuk baris yang
+    // sama untuk masalah yang sama; menampilkannya sebagai dua blok terpisah
+    // membuat laporan terasa berisi duplikat. Dikelompokkan, keduanya terbaca
+    // sebagai satu lokasi dengan dua sumber — dan tidak ada informasi hilang.
+    for (file, line, group) in group_by_location(findings) {
+        let worst = group
+            .iter()
+            .map(|f| f.severity)
+            .max()
+            .unwrap_or(Severity::Info);
+
+        let location = if line == 0 {
+            file.clone()
         } else {
-            format!("{}:{}", f.file, f.line)
+            format!("{file}:{line}")
         };
 
-        println!("{badge}  {}", f.title.bold());
-        println!("          {}  {}", location.bright_cyan(), f.rule_id.bright_black());
+        let count_note = if group.len() > 1 {
+            format!("  ({} temuan)", group.len())
+                .bright_black()
+                .to_string()
+        } else {
+            String::new()
+        };
+
         println!(
-            "          {}",
-            format!("sumber: {}", f.source.label()).bright_black()
+            "{}  {}{count_note}",
+            format!("{:>8}", worst.label()).color(worst.color()).bold(),
+            location.bright_cyan()
         );
-        if !f.snippet.is_empty() {
-            println!("          {}", f.snippet.dimmed());
-        }
-        if !f.message.is_empty() {
-            for line in wrap(&f.message, 96) {
-                println!("          {line}");
+
+        for f in &group {
+            println!(
+                "          {}  {}  {}",
+                f.title.bold(),
+                f.rule_id.bright_black(),
+                format!("[{}]", f.source.label()).bright_black()
+            );
+
+            // Snippet berasal dari berkas yang tidak dipercaya: escape ANSI di
+            // dalamnya bisa membersihkan layar lalu mencetak "0 temuan" palsu.
+            let snippet = sanitize_display(&f.snippet);
+            if !snippet.is_empty() {
+                println!("          {}", snippet.dimmed());
             }
+
+            let message = sanitize_display(&f.message);
+            if !message.is_empty() {
+                for l in wrap(&message, 92) {
+                    println!("          {l}");
+                }
+            }
+            println!();
         }
-        println!();
     }
 
     let c = counts(findings);
@@ -69,7 +132,10 @@ fn print_text(findings: &[Finding], rejected: usize) {
         Severity::Info,
     ]
     .iter()
-    .filter_map(|s| c.get(s).map(|n| format!("{} {}", n, s.label().to_ascii_lowercase())))
+    .filter_map(|s| {
+        c.get(s)
+            .map(|n| format!("{} {}", n, s.label().to_ascii_lowercase()))
+    })
     .collect();
 
     println!(
@@ -77,6 +143,12 @@ fn print_text(findings: &[Finding], rejected: usize) {
         findings.len().to_string().bold(),
         parts.join(", ")
     );
+    if hidden > 0 {
+        println!(
+            "▸ {} temuan tersaring oleh --min-severity/--source",
+            hidden.to_string().bold()
+        );
+    }
     if rejected > 0 {
         println!(
             "▸ {} ditolak LLM sebagai false positive",
@@ -85,18 +157,28 @@ fn print_text(findings: &[Finding], rejected: usize) {
     }
 }
 
-fn print_json(findings: &[Finding], rejected: usize) -> Result<()> {
+/// Kelompokkan temuan berdasarkan `(file, line)`, menjaga urutan kemunculan.
+fn group_by_location(findings: &[Finding]) -> Vec<(String, usize, Vec<&Finding>)> {
+    let mut groups: Vec<(String, usize, Vec<&Finding>)> = Vec::new();
+    for f in findings {
+        match groups
+            .iter_mut()
+            .find(|(file, line, _)| *file == f.file && *line == f.line)
+        {
+            Some((_, _, members)) => members.push(f),
+            None => groups.push((f.file.clone(), f.line, vec![f])),
+        }
+    }
+    groups
+}
+
+fn print_json(findings: &[Finding], rejected: usize, hidden: usize) -> Result<()> {
     let c = counts(findings);
     let summary = serde_json::json!({
         "total": findings.len(),
+        "hidden_by_filter": hidden,
         "rejected_by_llm": rejected,
-        "by_severity": {
-            "critical": c.get(&Severity::Critical).copied().unwrap_or(0),
-            "high": c.get(&Severity::High).copied().unwrap_or(0),
-            "medium": c.get(&Severity::Medium).copied().unwrap_or(0),
-            "low": c.get(&Severity::Low).copied().unwrap_or(0),
-            "info": c.get(&Severity::Info).copied().unwrap_or(0),
-        },
+        "by_severity": counts_json(&c),
     });
 
     let out = serde_json::json!({ "summary": summary, "findings": findings });
@@ -114,7 +196,7 @@ fn print_grep(findings: &[Finding]) {
             f.line,
             f.severity.label(),
             f.rule_id,
-            f.message.replace('\n', " ")
+            sanitize_display(&f.message).replace('\n', " ")
         );
     }
 }

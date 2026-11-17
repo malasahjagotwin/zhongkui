@@ -1,22 +1,49 @@
 //! Ekstraksi JSON dari keluaran model bahasa.
 //!
 //! Model sering membungkus JSON dengan pagar markdown, kalimat pembuka, atau
-//! tanda kutip penutup. Parser yang kaku akan gagal di mayoritas respons
-//! padahal isinya benar — jadi di sini kita ambil blok array pertama yang
-//! seimbang dan parse itu.
+//! referensi bertanda kurung seperti `[CWE-79]`. Parser yang kaku akan gagal
+//! padahal isi jawabannya benar — jadi di sini kita mencoba **setiap** array
+//! yang seimbang, berurutan, sampai ada yang cocok dengan skema yang diminta.
+//!
+//! Versi sebelumnya hanya mengambil array seimbang pertama. Kalau model menulis
+//! "terkait [CWE-79]: ..." sebelum array-nya, yang terambil adalah `[CWE-79]`,
+//! deserialisasi gagal, dan seluruh batch dibuang diam-diam.
 
-use anyhow::{Context, Result};
+use anyhow::{Result, bail};
 
-/// Ambil dan parse array JSON pertama yang ditemukan di `raw`.
+/// Ambil dan parse array JSON pertama yang **cocok dengan skema** `T`.
 pub fn extract_array<T: serde::de::DeserializeOwned>(raw: &str) -> Result<Vec<T>> {
     let cleaned = strip_fences(raw);
-    let slice = balanced_array(&cleaned)
-        .with_context(|| format!("tidak menemukan array JSON pada keluaran model: {}", preview(raw)))?;
 
-    let values: Vec<T> = serde_json::from_str(slice)
-        .with_context(|| format!("array JSON tidak cocok dengan skema yang diharapkan: {}", preview(slice)))?;
+    let mut last_schema_error: Option<String> = None;
+    let mut from = 0usize;
 
-    Ok(values)
+    while let Some(offset) = cleaned[from..].find('[') {
+        let start = from + offset;
+
+        let Some(slice) = balanced_array_from(&cleaned, start) else {
+            // Kurung tidak pernah seimbang lagi setelah titik ini.
+            break;
+        };
+
+        match serde_json::from_str::<Vec<T>>(slice) {
+            Ok(values) => return Ok(values),
+            Err(e) => {
+                last_schema_error = Some(format!("{} (pada {})", e, preview(slice)));
+                // Lanjut ke '[' berikutnya. `[` adalah ASCII, jadi start + 1
+                // selalu berada di batas karakter.
+                from = start + 1;
+            }
+        }
+    }
+
+    match last_schema_error {
+        Some(e) => bail!("tidak ada array JSON yang cocok dengan skema yang diharapkan: {e}"),
+        None => bail!(
+            "tidak menemukan array JSON pada keluaran model: {}",
+            preview(raw)
+        ),
+    }
 }
 
 /// Buang pagar kode markdown kalau ada.
@@ -33,11 +60,13 @@ fn strip_fences(raw: &str) -> String {
     out
 }
 
-/// Cari `[` pertama lalu lacak kedalaman kurung untuk menemukan penutupnya,
-/// dengan mengabaikan `[`/`]` yang berada di dalam string.
-fn balanced_array(s: &str) -> Option<&str> {
+/// Dari posisi `start` yang menunjuk `[`, lacak kedalaman kurung untuk
+/// menemukan penutupnya — dengan mengabaikan `[`/`]` di dalam string.
+fn balanced_array_from(s: &str, start: usize) -> Option<&str> {
     let bytes = s.as_bytes();
-    let start = s.find('[')?;
+    if bytes.get(start) != Some(&b'[') {
+        return None;
+    }
 
     let mut depth = 0usize;
     let mut in_string = false;
@@ -79,7 +108,7 @@ fn preview(s: &str) -> String {
         clean
     } else {
         let cut: String = clean.chars().take(200).collect();
-        format!("{cut}…")
+        format!("{cut}...")
     }
 }
 
@@ -110,7 +139,7 @@ mod tests {
         // Kalau pencarian kedalaman tidak sadar-string, ini akan berhenti
         // di `]` pertama dan gagal parse.
         let raw = r#"[{"a":1},"teks dengan ] kurung"]"#;
-        let slice = balanced_array(raw).unwrap();
+        let slice = balanced_array_from(raw, 0).unwrap();
         assert_eq!(slice, raw);
     }
 
@@ -123,5 +152,30 @@ mod tests {
     fn empty_array_is_valid() {
         let items: Vec<Item> = extract_array("[]").unwrap();
         assert!(items.is_empty());
+    }
+
+    /// Regresi: rujukan bertanda kurung di prosa model tidak boleh membuat
+    /// seluruh jawaban dibuang.
+    #[test]
+    fn skips_prose_brackets_before_real_array() {
+        let raw = "Masalah ini terkait [CWE-79](https://cwe.mitre.org/data/definitions/79.html):\n[{\"a\":5}]";
+        let items: Vec<Item> = extract_array(raw).unwrap();
+        assert_eq!(items, vec![Item { a: 5 }]);
+    }
+
+    #[test]
+    fn skips_numeric_bracket_reference() {
+        let raw = "Berikut hasilnya [1]:\n[{\"a\":9}]";
+        let items: Vec<Item> = extract_array(raw).unwrap();
+        assert_eq!(items, vec![Item { a: 9 }]);
+    }
+
+    /// Array yang bentuknya bukan yang diminta dilewati, bukan dianggap sukses
+    /// atau menggagalkan seluruh pencarian.
+    #[test]
+    fn skips_array_of_wrong_shape() {
+        let raw = r#"[1,2,3] lalu [{"a":4}]"#;
+        let items: Vec<Item> = extract_array(raw).unwrap();
+        assert_eq!(items, vec![Item { a: 4 }]);
     }
 }

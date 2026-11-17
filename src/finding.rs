@@ -95,9 +95,19 @@ pub struct Finding {
 }
 
 impl Finding {
-    /// Kunci dedup. Temuan yang sama dari rule dan LLM dianggap satu.
-    pub fn dedup_key(&self) -> (String, String, usize) {
-        (self.rule_id.clone(), self.file.clone(), self.line)
+    /// Kunci dedup.
+    ///
+    /// `title` ikut disertakan, bukan hanya `(rule_id, file, line)`: temuan
+    /// dari LLM sering tidak punya rule_id spesifik sehingga jatuh ke
+    /// `llm/discovery` dengan line 0, dan tanpa `title` dua masalah berbeda
+    /// pada berkas yang sama akan menyatu jadi satu dan salah satunya hilang.
+    pub fn dedup_key(&self) -> (String, String, usize, String) {
+        (
+            self.rule_id.clone(),
+            self.file.clone(),
+            self.line,
+            self.title.clone(),
+        )
     }
 }
 
@@ -112,23 +122,48 @@ pub fn redact(secret: &str) -> String {
     }
     let head: String = secret.chars().take(4).collect();
     let tail: String = secret.chars().skip(n - 4).collect();
-    format!("{head}…{tail}")
+    format!("{head}...{tail}")
 }
 
-/// Redaksi nilai rahasia di baris, dengan asumsi regex punya capture group
-/// yang menunjuk tepat ke nilai rahasianya (bukan ke seluruh baris).
-pub fn redact_line(line: &str, pattern: &regex::Regex) -> (String, Option<String>) {
-    let mut found: Option<String> = None;
+/// Redaksi **semua** kecocokan `pattern` pada baris.
+///
+/// Mengembalikan `(baris_teredaksi, daftar_nilai_cocok)`. Daftar berisi setiap
+/// kecocokan, bukan hanya yang pertama: pemanggil perlu memeriksa tiap nilai
+/// (placeholder atau bukan) sendiri. Versi sebelumnya hanya mengembalikan
+/// kecocokan pertama, sehingga satu nilai placeholder di awal baris membuat
+/// rahasia asli di belakangnya tidak pernah diperiksa.
+///
+/// Asumsi: kalau regex punya capture group 1, itu nilai rahasianya; kalau
+/// tidak, seluruh kecocokan dianggap rahasia.
+pub fn redact_line(line: &str, pattern: &regex::Regex) -> (String, Vec<String>) {
+    let mut found: Vec<String> = Vec::new();
+
     let out = pattern
         .replace_all(line, |caps: &regex::Captures<'_>| {
             let whole = caps.get(0).map(|m| m.as_str()).unwrap_or("");
-            // Group 1 kalau ada (nilai rahasianya), kalau tidak pakai match penuh.
             let secret = caps.get(1).map(|m| m.as_str()).unwrap_or(whole);
-            if found.is_none() {
-                found = Some(secret.to_string());
+
+            if secret.is_empty() {
+                return whole.to_string();
             }
+            found.push(secret.to_string());
+            // `replace` mengganti semua kemunculan nilai yang sama di dalam
+            // kecocokan; itu yang diinginkan.
             whole.replace(secret, &redact(secret))
         })
         .into_owned();
+
     (out, found)
+}
+
+/// Netralkan karakter kontrol sebelum dicetak ke terminal.
+///
+/// Snippet berasal dari berkas yang tidak dipercaya. Escape sequence ANSI di
+/// dalamnya bisa membersihkan layar lalu mencetak teks palsu di atas temuan
+/// asli — penyerang cukup menaruh `\x1b[2J` di dalam komentar. Baris baru dan
+/// tab dibiarkan karena keduanya tidak mengeksekusi apa pun.
+pub fn sanitize_display(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+        .collect()
 }

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --all
+
+      - name: Build release
+        run: cargo build --release
+
+  deps:
+    name: Periksa kerentanan dependency
+    runs-on: ubuntu-latest
+    # Job ini memanggil API OSV. Kalau OSV sedang tidak bisa dihubungi, atau ada
+    # kerentanan baru, jangan gagalkan build — laporkan saja. Menjadikannya
+    # blocking berarti kerentanan di crate pihak ketiga memblokir rilis kita
+    # sendiri, dan itu keputusan manusia, bukan keputusan CI.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Dogfooding: pakai zhongkui sendiri untuk memeriksa dependency-nya.
+      - name: zhongkui deps
+        run: cargo run --quiet --release -- deps Cargo.lock

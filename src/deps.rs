@@ -5,7 +5,7 @@
 //! yang kita pakai... kecuali ke OSV sendiri. Pakai `--offline` kalau itu pun
 //! tidak diinginkan.
 
-use crate::cli::DepsArgs;
+use crate::cli::{DepsArgs, OutputFormat};
 use crate::finding::{Finding, Severity, Source};
 use crate::report;
 use crate::rules;
@@ -107,8 +107,35 @@ pub async fn run(args: DepsArgs) -> Result<()> {
         .unwrap_or_else(|| args.lockfile.display().to_string());
 
     if args.offline {
-        for p in &packages {
-            println!("  {} {}", p.name, p.version);
+        // --format harus dihormati di semua mode. Sebelumnya mode offline
+        // selalu mencetak teks polos, sehingga `--offline --format json`
+        // menghasilkan keluaran yang tidak bisa diparse konsumen JSON.
+        match args.format {
+            OutputFormat::Text => {
+                for p in &packages {
+                    println!("  {} {}", p.name, p.version);
+                }
+            }
+            OutputFormat::Json => {
+                let list: Vec<serde_json::Value> = packages
+                    .iter()
+                    .map(|p| serde_json::json!({ "name": p.name, "version": p.version }))
+                    .collect();
+                let out = serde_json::json!({
+                    "summary": { "total": packages.len(), "offline": true },
+                    "packages": list,
+                    "findings": [],
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            }
+            OutputFormat::Grep => {
+                for p in &packages {
+                    println!(
+                        "{}:0:INFO:deps/offline:{} {}",
+                        lock_display, p.name, p.version
+                    );
+                }
+            }
         }
         eprintln!("→ mode offline: API OSV tidak dipanggil");
         return Ok(());
@@ -150,7 +177,10 @@ pub async fn run(args: DepsArgs) -> Result<()> {
         let body = response.text().await.context("gagal membaca respons OSV")?;
 
         if !status.is_success() {
-            bail!("OSV mengembalikan HTTP {status}: {}", body.chars().take(300).collect::<String>());
+            bail!(
+                "OSV mengembalikan HTTP {status}: {}",
+                body.chars().take(300).collect::<String>()
+            );
         }
 
         let parsed: OsvBatchResponse =
@@ -199,6 +229,6 @@ pub async fn run(args: DepsArgs) -> Result<()> {
         .cloned()
         .collect();
 
-    report::print(&shown, args.format, 0)?;
+    report::print(&shown, args.format, 0, 0)?;
     Ok(())
 }

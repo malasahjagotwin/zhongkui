@@ -145,10 +145,18 @@ impl LlmClient {
             };
 
             let status = response.status();
-            let text = response
-                .text()
-                .await
-                .context("gagal membaca body respons LLM")?;
+            // Kegagalan membaca body juga layak di-retry. Sebelumnya `?` di
+            // sini membatalkan seluruh audit untuk gangguan transien yang
+            // sama-sama sementara dengan kegagalan `send()`.
+            let text = match response.text().await {
+                Ok(text) => text,
+                Err(e) => {
+                    last_err =
+                        Some(anyhow::Error::new(e).context("gagal membaca body respons LLM"));
+                    backoff(attempt).await;
+                    continue;
+                }
+            };
 
             if status.is_success() {
                 return parse_content(&text);
@@ -172,8 +180,12 @@ impl LlmClient {
 }
 
 fn parse_content(body: &str) -> Result<String> {
-    let parsed: ChatResponse =
-        serde_json::from_str(body).with_context(|| format!("respons bukan JSON yang diharapkan: {}", truncate(body, 300)))?;
+    let parsed: ChatResponse = serde_json::from_str(body).with_context(|| {
+        format!(
+            "respons bukan JSON yang diharapkan: {}",
+            truncate(body, 300)
+        )
+    })?;
 
     let message = parsed
         .choices

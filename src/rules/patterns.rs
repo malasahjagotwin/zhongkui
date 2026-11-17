@@ -4,7 +4,7 @@
 //! `Command::new("ls")` dari `Command::new(user_input)`. Karena itu severity-nya
 //! dijaga konservatif dan tiap temuan menyertakan alasan kenapa dicurigai.
 
-use crate::finding::{Finding, Severity, Source};
+use crate::finding::{Finding, Severity, Source, sanitize_display};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -106,8 +106,7 @@ static RULES: LazyLock<Vec<PatternRule>> = LazyLock::new(|| {
             "Blok unsafe",
             Severity::Low,
             r"\bunsafe\s*\{",
-            "Blok unsafe memindahkan jaminan memori ke penulis kode. Pastikan invariant-nya didokumentasikan dan diuji."
-        ,
+            "Blok unsafe memindahkan jaminan memori ke penulis kode. Pastikan invariant-nya didokumentasikan dan diuji.",
             &["rs"]
         ),
     ]
@@ -118,14 +117,36 @@ pub fn scan_line(rel_path: &str, ext: &str, lineno: usize, line: &str, out: &mut
         return;
     }
 
+    // Snippet WAJIB lewat redaksi rahasia, walaupun rule ini bukan rule
+    // kredensial. Contoh nyata: `# TODO: rotate this token ghp_...` cocok
+    // dengan rule auth-todo, dan tanpa redaksi baris mentahnya — lengkap
+    // dengan token — ikut tercetak ke laporan.
+    //
+    // Dihitung malas: hanya kalau memang ada rule yang cocok.
+    let mut snippet: Option<String> = None;
+
     for rule in RULES.iter() {
-        if let Some(allowed) = rule.only_ext {
-            if !allowed.contains(&ext) {
-                continue;
-            }
+        if let Some(allowed) = rule.only_ext
+            && !allowed.contains(&ext)
+        {
+            continue;
         }
 
-        let Some(m) = rule.re.find(line) else { continue };
+        let Some(m) = rule.re.find(line) else {
+            continue;
+        };
+
+        let snippet = snippet
+            .get_or_insert_with(|| {
+                sanitize_display(
+                    &super::secrets::redact_all(line)
+                        .trim()
+                        .chars()
+                        .take(200)
+                        .collect::<String>(),
+                )
+            })
+            .clone();
 
         out.push(Finding {
             rule_id: rule.id.to_string(),
@@ -134,7 +155,7 @@ pub fn scan_line(rel_path: &str, ext: &str, lineno: usize, line: &str, out: &mut
             source: Source::Rule,
             file: rel_path.to_string(),
             line: lineno,
-            snippet: line.trim().chars().take(200).collect(),
+            snippet,
             message: format!("{} (kecocokan: `{}`)", rule.message, m.as_str()),
         });
     }

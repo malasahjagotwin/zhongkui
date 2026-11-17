@@ -1934,7 +1934,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml",
- "walkdir",
 ]
 
 [[package]]

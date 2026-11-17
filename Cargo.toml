@@ -2,6 +2,15 @@
 name = "zhongkui"
 version = "0.1.0"
 edition = "2024"
+# edition 2024 mensyaratkan 1.85; fitur lain yang dipakai (LazyLock, div_ceil)
+# lebih lama lagi, jadi 1.85 adalah batas bawahnya.
+rust-version = "1.85"
+description = "Auditor keamanan source code dengan bantuan LLM: rule deterministik offline + triase LLM opt-in"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/malasahjagotwin/zhongkui"
+readme = "README.md"
+keywords = ["security", "audit", "sast", "llm", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -14,4 +23,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time"] }
 toml = "1.2.1"
-walkdir = "2.5.0"
+
+[profile.release]
+lto = "thin"
+strip = true

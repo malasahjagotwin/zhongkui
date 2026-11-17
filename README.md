@@ -1,5 +1,8 @@
 # zhongkui 鍾馗
 
+[![CI](https://github.com/malasahjagotwin/zhongkui/actions/workflows/ci.yml/badge.svg)](https://github.com/malasahjagotwin/zhongkui/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#lisensi)
+
 Auditor keamanan source code dengan bantuan LLM.
 
 > 鍾馗 — penakluk siluman. Sosok berwibawa yang berburu dan menundukkan roh
@@ -96,7 +99,10 @@ mudah terlewat. Beberapa keputusan yang diambil karena itu:
   sekali. Ini juga berarti tidak ada telemetri.
 - **API key hanya dari env var**, supaya tidak gampang ikut ter-commit.
 - **Batas jumlah data yang dikirim ke LLM** (`--llm-discover`): maksimal 20
-  file, 40 KB per file, 300 KB total.
+  file, 40 KB per file, 300 KB total. Berkas yang namanya sendiri menandakan
+  rahasia (`.env`, `*.pem`, `id_rsa`, …) **tidak dikirim sama sekali**, dan
+  isi berkas lain diredaksi dulu sebelum dikirim — rahasia hardcoded memang
+  sudah tertangkap rule lokal, jadi tidak ada gunanya mengirimkannya keluar.
 - **Temuan dari LLM ditandai terpisah** (`sumber: llm`). Temuan itu
   probabilistik dan harus diverifikasi manusia sebelum dilaporkan ke siapa pun.
 
@@ -108,6 +114,13 @@ mudah terlewat. Beberapa keputusan yang diambil karena itu:
   proprietary, pakai endpoint sendiri lewat `LELUHUR_BASE_URL`, atau jangan
   pakai flag ini.
 - `zhongkui deps` mengungkap daftar dependency kamu ke OSV.
+- **`--llm-discover` belum bebas prompt injection.** Isi berkas dibungkus
+  penanda data-tak-terpercaya (bukan pagar markdown yang bisa di-*breakout*),
+  penandanya dinetralkan kalau muncul di dalam isi, dan isinya diredaksi. Itu
+  mengurangi risiko secara nyata — tetapi tidak menghilangkannya. Model bahasa
+  masih bisa terpengaruh instruksi yang tersembunyi di dalam kode. Perlakukan
+  temuan `--llm-discover` sebagai saran, bukan gerbang keamanan, dan jangan
+  pakai flag ini pada kode yang tidak kamu percaya tanpa pengawasan.
 
 ## Arsitektur
 
@@ -129,4 +142,6 @@ src/
 
 ## Lisensi
 
-Belum ditentukan.
+Dilisensikan ganda di bawah [MIT](LICENSE-MIT) atau [Apache-2.0](LICENSE-APACHE),
+sesuai pilihanmu. Ini konvensi ekosistem Rust dan berarti kamu boleh memakai,
+memodifikasi, dan mendistribusikan zhongkui dengan syarat yang sangat ringan.
