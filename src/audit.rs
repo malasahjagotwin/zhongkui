@@ -1,4 +1,4 @@
-//! Perintah `keris audit`: pemindaian deterministik, lalu opsional diperkaya LLM.
+//! Perintah `zhongkui audit`: pemindaian deterministik, lalu opsional diperkaya LLM.
 
 use crate::cli::{AuditArgs, SourceFilter};
 use crate::finding::{Finding, Severity, Source};

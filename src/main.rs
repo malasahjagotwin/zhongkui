@@ -1,4 +1,4 @@
-//! keris — auditor keamanan source code dengan bantuan LLM.
+//! zhongkui — auditor keamanan source code dengan bantuan LLM.
 
 mod audit;
 mod cli;

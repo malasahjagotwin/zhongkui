@@ -77,7 +77,7 @@ impl LlmClient {
             .to_string();
 
         let model = model_override
-            .or_else(|| std::env::var("KERIS_MODEL").ok())
+            .or_else(|| std::env::var("ZHONGKUI_MODEL").ok())
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
 
         let http = reqwest::Client::builder()

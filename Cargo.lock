@@ -787,23 +787,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keris"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "colored",
- "ignore",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "walkdir",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1935,6 +1918,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "zhongkui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "colored",
+ "ignore",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "walkdir",
 ]
 
 [[package]]

@@ -9,6 +9,6 @@
 *.p12
 *.pfx
 
-# Hasil laporan keris sering memuat potongan kode sensitif.
-/keris-report.*
+# Hasil laporan zhongkui sering memuat potongan kode sensitif.
+/zhongkui-report.*
 *.sarif

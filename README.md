@@ -1,8 +1,12 @@
-# keris
+# zhongkui 鍾馗
 
 Auditor keamanan source code dengan bantuan LLM.
 
-Keris bekerja dua lapis:
+> 鍾馗 — penakluk siluman. Sosok berwibawa yang berburu dan menundukkan roh
+> jahat; gambarnya dipasang di pintu sebagai penjaga. Nama itu yang dipakai
+> di sini: sesuatu yang berkeliling mencari yang bersembunyi, lalu menamainya.
+
+Zhongkui bekerja dua lapis:
 
 1. **Rule deterministik** — regex untuk kredensial hardcoded dan heuristik pola
    kode berbahaya (shell injection, SQL string concat, TLS verify dimatikan,
@@ -18,7 +22,7 @@ Lapis kedua **opt-in**, bukan default. Alasannya di bagian [Keamanan](#keamanan)
 
 ```bash
 cargo build --release
-./target/release/keris --help
+./target/release/zhongkui --help
 ```
 
 ## Pemakaian
@@ -26,12 +30,12 @@ cargo build --release
 ### Audit kode (offline)
 
 ```bash
-keris audit ./src
-keris audit .                      # seluruh repo
-keris audit ./src --min-severity high
-keris audit ./src --format json > report.json
-keris audit ./src --format grep    # file:line:SEV:rule:pesan, ramah grep
-keris audit ./src --source rule    # hanya temuan rule, tanpa usulan LLM
+zhongkui audit ./src
+zhongkui audit .                      # seluruh repo
+zhongkui audit ./src --min-severity high
+zhongkui audit ./src --format json > report.json
+zhongkui audit ./src --format grep    # file:line:SEV:rule:pesan, ramah grep
+zhongkui audit ./src --source rule    # hanya temuan rule, tanpa usulan LLM
 ```
 
 Temuan rule dan LLM bisa menunjuk baris yang sama untuk masalah yang sama.
@@ -42,19 +46,19 @@ menampilkan hanya usulan model.
 
 ```bash
 export LELUHUR_API_KEY=sk-...
-keris audit ./ --llm               # triase temuan deterministik
-keris audit ./ --llm-discover      # + kirim isi file untuk cari yang lolos regex
-keris audit ./ --llm --llm-discover
+zhongkui audit ./ --llm               # triase temuan deterministik
+zhongkui audit ./ --llm-discover      # + kirim isi file untuk cari yang lolos regex
+zhongkui audit ./ --llm --llm-discover
 ```
 
-Isi kode dikirim ke endpoint pihak ketiga pada mode ini, dan keris akan
+Isi kode dikirim ke endpoint pihak ketiga pada mode ini, dan zhongkui akan
 memperingatkan sebelum melakukannya.
 
 ### Cek dependency
 
 ```bash
-keris deps Cargo.lock
-keris deps Cargo.lock --offline    # hanya daftar paket, tanpa panggil OSV
+zhongkui deps Cargo.lock
+zhongkui deps Cargo.lock --offline    # hanya daftar paket, tanpa panggil OSV
 ```
 
 Query ke [OSV](https://osv.dev) — API publik, gratis, tanpa kredensial.
@@ -67,7 +71,7 @@ Semua lewat environment variable:
 |---|---|---|
 | `LELUHUR_API_KEY` | — | Wajib untuk mode LLM |
 | `LELUHUR_BASE_URL` | `https://leluhurcy.us.ci/v1` | Endpoint OpenAI-compatible |
-| `KERIS_MODEL` | `ds-meji` | Nama model |
+| `ZHONGKUI_MODEL` | `ds-meji` | Nama model |
 
 API key **hanya** dibaca dari environment, tidak pernah dari file di dalam repo.
 
@@ -103,7 +107,7 @@ mudah terlewat. Beberapa keputusan yang diambil karena itu:
 - `--llm-discover` mengirim isi kode ke relay pihak ketiga. Untuk kode
   proprietary, pakai endpoint sendiri lewat `LELUHUR_BASE_URL`, atau jangan
   pakai flag ini.
-- `keris deps` mengungkap daftar dependency kamu ke OSV.
+- `zhongkui deps` mengungkap daftar dependency kamu ke OSV.
 
 ## Arsitektur
 

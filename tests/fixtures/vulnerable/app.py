@@ -1,5 +1,5 @@
 # FIXTURE UJI — semua nilai di berkas ini SINTETIS dan tidak berfungsi.
-# Tujuannya memverifikasi bahwa `keris audit` benar-benar mendeteksi pola
+# Tujuannya memverifikasi bahwa `zhongkui audit` benar-benar mendeteksi pola
 # yang seharusnya. Jangan pakai berkas ini sebagai contoh kode.
 
 import hashlib

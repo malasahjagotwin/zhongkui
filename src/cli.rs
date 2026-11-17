@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "keris",
+    name = "zhongkui",
     version,
     about = "Auditor keamanan source code dengan bantuan LLM",
-    long_about = "keris memindai source code untuk kerentanan dan kredensial hardcoded.\n\
+    long_about = "zhongkui memindai source code untuk kerentanan dan kredensial hardcoded.\n\
                   Pemindaian rule deterministik berjalan offline; analisis LLM bersifat opt-in\n\
                   karena mengirim isi kode ke endpoint pihak ketiga."
 )]
@@ -96,7 +96,7 @@ pub struct AuditArgs {
     #[arg(long, value_enum, default_value_t = SourceFilter::All)]
     pub source: SourceFilter,
 
-    /// Timpa nama model (default: env KERIS_MODEL atau `ds-meji`)
+    /// Timpa nama model (default: env ZHONGKUI_MODEL atau `ds-meji`)
     #[arg(long)]
     pub model: Option<String>,
 }

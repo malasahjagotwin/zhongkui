@@ -1,4 +1,4 @@
-//! Perintah `keris deps`: cek lockfile ke database kerentanan OSV.
+//! Perintah `zhongkui deps`: cek lockfile ke database kerentanan OSV.
 //!
 //! OSV dipilih karena API-nya publik, gratis, dan tidak butuh kredensial —
 //! jadi fitur ini tetap bisa dipakai tanpa memberi tahu siapa pun paket apa
